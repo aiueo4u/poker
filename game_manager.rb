@@ -1,6 +1,7 @@
 require 'socket'
 require 'json'
-require './poker'
+require_relative 'poker'
+require_relative 'lib/poker'
 
 class GameManager
   attr_accessor :max_players
@@ -59,7 +60,7 @@ class GameManager
       puts "---------------------------------"
       puts ""
 
-      deck = Deck.new
+      deck = Poker::Deck.new
       player_cards = Hash.new { |h,k| h[k] = [] }
       pot_amount = 0
 
@@ -101,26 +102,24 @@ class GameManager
       puts "River cards: #{board_cards.map(&:id).join(' ')}"
 
       # show result
-      results = {}
-      player_cards.each do |no, cards|
-        res = Hand.evaluate_hands(board_cards + cards)
-        puts res[:msg]
-        results[no] = res
+      results = Poker::Hand.evaluate_cards(player_cards, board_cards)
+      results.each do |no, result|
+        puts result[:hand].evaluate[:msg]
       end
 
       strongest_numbers = []
-      results.each do |no, res|
+      results.each do |no, result|
         if strongest_numbers.empty?
           strongest_numbers << no
           next
         end
 
         strongest_number = strongest_numbers.first
-        strongest_result = results[strongest_number]
-        if res[:hands] > strongest_result[:hands]
-          strongest_numbers = [no]
-        elsif res[:hands] == strongest_result[:hands]
+        strongest_hand = results[strongest_number][:hand]
+        if Poker::Hand.equal?(result[:hand], strongest_hand)
           strongest_numbers << no
+        elsif Poker::Hand.stronger?(result[:hand], strongest_hand)
+          strongest_numbers = [no]
         end
       end
 
