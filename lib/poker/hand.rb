@@ -37,14 +37,13 @@ module Poker
     def self.detect_hands_straight(cards)
       highest_rank = cards.max_by(&:strength).rank
       if highest_rank == 'A'
-        return nil unless [2,3,4,5,14] == cards.map(&:strength).sort # TODO
-      else
-        sorted_ranks = cards.map(&:strength).sort
-        prev_rank = sorted_ranks[0] - 1
-        sorted_ranks.each do |rank|
-          return nil unless rank == prev_rank + 1
-          prev_rank = rank
-        end
+         return cards if [2,3,4,5,14] == cards.map(&:strength).sort # TODO
+      end
+      sorted_ranks = cards.map(&:strength).sort
+      prev_rank = sorted_ranks[0] - 1
+      sorted_ranks.each do |rank|
+        return nil unless rank == prev_rank + 1
+        prev_rank = rank
       end
       cards
     end
@@ -84,9 +83,6 @@ module Poker
     end
     def detect_hands_three_of_a_kind
       self.class.detect_hands_three_of_a_kind(@cards)
-    end
-    def detect_hands_straight
-      self.class.detect_hands_straight(@cards)
     end
     def detect_hands_straight
       self.class.detect_hands_straight(@cards)

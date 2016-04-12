@@ -1,0 +1,10 @@
+Pattern num: 2598960
+High card:	1302540	50.1177 %	1
+One pair:	1098240	42.2569 %	2
+Two pair:	123552	4.7539 %	21
+Three of a kind:	54912	2.1128 %	47
+Straight:	10200	0.3924 %	254
+Flush:	5108	0.1965 %	508
+Full house:	3744	0.144 %	694
+Four of a kind:	624	0.024 %	4165
+Straight flush:	40	0.0015 %	64974
