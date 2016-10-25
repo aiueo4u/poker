@@ -30,7 +30,7 @@ class GameManager
   end
 
   def run
-    server = TCPServer.open(0, @port)
+    server = TCPServer.new(@port)
     @listening_sockets = [server]
 
     # TODO: 3 players
@@ -54,6 +54,7 @@ class GameManager
     player_manager = PlayerManager.new(player_socks)
 
     count = 0
+    button_seat_no = 0 # 最初ボタンのプレイヤーのシート番号
     while true
       puts "---------------------------------"
       puts "The game #{count} start"
@@ -81,30 +82,32 @@ class GameManager
 
       # BB
 
-      # [ Preflop ]
-      action_manager = ActionManager.new(player_manager.agent_map, pot_amount)
-      action_manager.hoge
-      # action_manager.result
+      # Phase: プリフロップ
+      action_manager = ActionManager.new(player_manager.agent_map, pot_amount, button_seat_no)
+      action_manager.hoge('preflop')
+
       pot_amount = action_manager.pot_amount
 
-      # broadcast(player_socks, msg: 'hogehogehoge')
-
-      # flop
+      # Phase: フロップ
       board_cards = [deck.draw, deck.draw, deck.draw]
-      puts "Flop cards: #{board_cards.map(&:id).join(' ')}"
+      puts "Flop board: #{board_cards.map(&:id).join(' ')}"
 
-      # turn
-      board_cards << deck.draw
-      puts "Turn cards: #{board_cards.map(&:id).join(' ')}"
+      # Phase: ターン
+      drawn_card = deck.draw
+      board_cards << drawn_card
+      puts "Turn card: #{drawn_card}"
+      puts "Turn board: #{board_cards.map(&:id).join(' ')}"
 
-      # river
-      board_cards << deck.draw
-      puts "River cards: #{board_cards.map(&:id).join(' ')}"
+      # Phase: リバー
+      drawn_card = deck.draw
+      board_cards << drawn_card
+      puts "River card: #{drawn_card}"
+      puts "River board: #{board_cards.map(&:id).join(' ')}"
 
-      # show result
+      # 勝敗判定
       results = Poker::Hand.evaluate_cards(player_cards, board_cards)
       results.each do |no, result|
-        puts result[:hand].evaluate[:msg]
+        puts "[Seat #{no + 1}] #{result[:hand].evaluate[:msg]}"
       end
 
       strongest_numbers = []
@@ -123,8 +126,8 @@ class GameManager
         end
       end
 
-      puts "win: #{strongest_numbers.join(',')}"
-      puts "got: #{pot_amount / strongest_numbers.size}"
+      puts "Win Players: #{strongest_numbers.join(',')}"
+      puts "Prize: $#{pot_amount / strongest_numbers.size}"
 
       strongest_numbers.each do |no|
         agent = player_manager.agent_map[no]
@@ -133,13 +136,14 @@ class GameManager
       end
 
       count += 1
-      break if count > 5
+      break if count >= 5
+      button_seat_no = (button_seat_no + 1) % player_manager.agent_map.keys.size
       puts "next game..."
       gets # push enter to next game...
     end
 
-    player_socks.each do |no, sock|
-      sock.puts(type: 'close')
+    player_manager.agent_map.each do |no, agent|
+      agent.comm(type: 'close')
     end
     puts "shutdown..."
 

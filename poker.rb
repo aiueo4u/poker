@@ -21,45 +21,52 @@ class Player
 end
 
 class ActionManager
-  attr_accessor  :pot_amount
-  def initialize(agent_map, pot_amount)
+  def initialize(agent_map, pot_amount, button_seat_no)
     @agent_map = agent_map
-    @pot_amount = pot_amount
     @plalyer_statuses = {}
+
+    # １ゲーム全ての履歴情報
+    @current_phase_action_id = 0
+    @game_data = {
+      pot_amount: 0,
+      players: [],
+      preflop_actions: [],
+      flop_actions: [],
+      turn_actions: [],
+      river_actions: []
+    }
+
+    positions = (0..agent_map.keys.size - 1).to_a # 0: SB, 1: BB, 2: UTG, ...
+    @game_data[:players] = agent_map.map do |seat_no, agent|
+      {
+        seat_no: seat_no,
+        position: positions[(seat_no - button_seat_no) % positions.size],
+        player_name: agent.seat.player.name,
+        stack: agent.seat.player.stack,
+        state: "active",
+        phase_amount: 0,
+      }
+    end
+    @current_base_no = button_seat_no
 
     @history = []
   end
 
-  def process_action(action)
-    case action[:action]
-    when 'bet'
-      bet_amount = action[:amount]
-      @pot_amount += bet_amount
-      action[:agent].seat.player.stack -= bet_amount
-    when 'call'
-      bet_amount = action[:amount]
-      @pot_amount += bet_amount
-      action[:agent].seat.player.stack -= bet_amount
-    when 'check'
-    when 'raise'
-      bet_amount = action[:amount]
-      @pot_amount += bet_amount
-      action[:agent].seat.player.stack -= bet_amount
-    when 'fold'
-    end
+  def pot_amount
+    @game_data[:pot_amount]
   end
 
   def result
     puts "HISTORY:"
     p @history
-    puts "pot: #{@pot_amount}"
     puts "last actions: #{ @history.slice(@current_history_index..-1)}"
   end
 
-  def hoge
+  def hoge(phase)
     @current_history_index ||= 0
-    @current_base_no = 0
+    @current_phase = phase
 
+    # TODO: UTGのプレイヤーから
     agents = @agent_map.values.slice(@current_base_no..-1)
     if @current_base_no > 0
       agents += @agent_map.values.slice(0..(@current_base_no-1))
@@ -69,46 +76,108 @@ class ActionManager
       unless each_action(agents)
         break
       end
-      # current以外
-      agents = @agent_map.values.slice((@current_base_no+1)..-1)
-      if @current_base_no > 0
-        agents += @agent_map.values.slice(0..(@current_base_no-1))
+      agents = []
+      # ベット or レイズのアクションをした次のプレイヤーから
+      if @current_base_no + 1 < @agent_map.keys.size # 最後じゃない場合
+        next_seat_no = (@current_base_no + 1) % @agent_map.keys.size
+        agents += @agent_map.values.slice(next_seat_no..-1)
       end
-      fold_numbers = @history.select { |h| h[:action] == 'fold' }.map { |h| h[:agent].seat.no }
-      agents = agents.select { |a| !a.seat.no.in?(fold_numbers) }
+
+      # ベット or レイズのアクションをした手前のプレイヤーまで
+      if @current_base_no > 0 # 先頭じゃない場合
+        prev_seat_no = (@current_base_no - 1) % @agent_map.keys.size
+        agents += @agent_map.values.slice(0..prev_seat_no)
+      end
+
+      # フォールド済みのプレイヤーを除外
+      folded_seat_nos = @game_data[:players].select { |player| player[:state] == 'fold' }.map { |player| player[:seat_no] }
+      agents = agents.select { |a| !a.seat.no.in?(folded_seat_nos) }
     end 
   end
 
   # agent_map: bet or raiseしたプレイヤー以外　
   def each_action(agents)
-    puts "ENTER: each_action, #{@current_history_index}, #{@current_base_no}"
-    p agents.map(&:seat).map(&:no)
+    puts "ENTER: each_action, current_history_index: #{@current_history_index}, current_base_no: #{@current_base_no}"
+    puts "nos: #{agents.map(&:seat).map(&:no).join(',')}"
 
-    prev_action = nil
     agents.each do |agent|
-      action = one_action(agent, prev_action)
+      # プレイヤーにアクションを促し処理する
+      action = one_action(agent)
+
+      # プレイヤー全員に最新のゲームデータを配信
+      @agent_map.each { |_, a| a.comm(type: 'refresh', game_data: @game_data) }
+
       @history << action
-      prev_action = action
       puts "[Player] #{agent.seat.player.name}'s action: #{action[:action]}, amount: #{action[:amount]}"
-      puts "Pot: #{@pot_amount}"
       if action[:action] == 'bet' || action[:action] == 'raise'
         @current_history_index = @history.size - 1
         @current_base_no = agent.seat.no
         return true
       end
     end
-    # puts "LEAVE: each_action"
     false
   end
 
-  def one_action(agent, prev_action)
-    res = agent.comm(type: 'action', prev_action: prev_action)
+  def one_action(agent)
+    # クライアント通信: アクションを得る
+    res = agent.comm(type: 'action', game_data: @game_data)
     action = {}
-    action[:agent] = agent
     action[:action] = res[:action]
     action[:amount] = res[:amount]
-    process_action(action)
+    process_action(agent, action)
     action
+  end
+
+  # クライアントからのアクションをサーバ側で処理する
+  def process_action(agent, action)
+    # ゲームデータのプレイヤー情報取り出す
+    player_game_data = @game_data[:players].find { |player| player[:seat_no] == agent.seat.no }
+
+    # 現在のフェーズでの最高ベット額
+    largest_phase_amount = @game_data[:players].map { |player| player[:phase_amount] }.max
+
+    # 今回のアクションでポットに追加される額
+    bet_amount = 0
+
+    case action[:action]
+    when 'bet'
+      bet_amount = action[:amount]
+    when 'call'
+      # 現在のフェーズで既にベットしてポットに入っている額
+      phase_amount = player_game_data[:phase_amount] || 0
+
+      # 現在のフェーズでの最高ベッド額から差し引いた分がコールに必要な額
+      bet_amount = largest_phase_amount - phase_amount
+    when 'check'
+      # 何もしない
+    when 'raise'
+      # 現在のフェーズで既にベットしてポットに入っている額
+      phase_amount = player_game_data[:phase_amount] || 0
+
+      # 現在のフェーズで既にベットしてポットに入っている額をレイズ額（絶対値）から差し引いた額が追加分
+      bet_amount = action[:amount] - phase_amount
+    when 'fold'
+      # 何もしない
+    end
+
+    # ゲームデータのプレイヤー情報を更新
+    player_game_data[:phase_amount] += bet_amount
+    player_game_data[:stack] -= bet_amount
+    player_game_data[:state] = action[:action]
+
+    # ゲームデータのアクション履歴更新
+    @current_phase_action_id += 1
+    @game_data[:pot_amount] += bet_amount
+    @game_data["#{@current_phase}_actions".to_sym] << {
+        "id": @current_phase_action_id,
+        "seat_no": agent.seat.no,
+        "action": action[:action],
+        "amount": bet_amount
+    }
+    puts "[GAME_DATA] #{JSON.pretty_generate(@game_data)}"
+
+    # サーバ側のプレイヤーデータを更新
+    agent.seat.player.stack -= bet_amount
   end
 end
 
@@ -150,49 +219,11 @@ class ServerAgent
     JSON.parse(@sock.gets, symbolize_names: true)
   end
 
-  def puts(hash)
-    # p hash
-    @sock.puts(JSON.generate(hash))
-  end
-
   def comm(hash)
-    p hash
+    puts "From server to client: #{hash.to_s}"
     @sock.puts(JSON.generate(hash))
-    gets
-  end
-end
-
-class PlayerAgent
-  attr_accessor :player
-
-  def initialize
-    @sock = Client.new('localhost', 12345)
-    res = @sock.gets
-    player_name = "Player#{res[:no]}"
-    @sock.puts(name: player_name)
-    res = @sock.gets
-    player_stack = res[:stack]
-    @player = Player.new(player_name, player_stack)
-  end
-
-  def gets; @sock.gets; end
-  def puts(hash); @sock.puts(hash); end
-  def close; @sock.close; end
-
-  def ping
-    @sock.puts(cmd: 'ping')
-  end
-
-  def bet(amount)
-    @sock.puts(cmd: 'bet', action: 'bet', amount: amount)
-    @player.stack -= amount
-  end
-
-  def check
-    @sock.puts(cmd: '', action: 'check')
-  end
-
-  def win(amount)
-    @player.stack += amount
+    res = gets
+    puts "From client: #{res}"
+    res
   end
 end
