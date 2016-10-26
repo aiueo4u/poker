@@ -21,6 +21,8 @@ class Player
 end
 
 class ActionManager
+  attr_accessor :board_cards
+
   def initialize(agent_map, pot_amount, button_seat_no)
     @agent_map = agent_map
     @plalyer_statuses = {}
@@ -30,6 +32,7 @@ class ActionManager
     @game_data = {
       pot_amount: 0,
       players: [],
+      board_cards: [],
       preflop_actions: [],
       flop_actions: [],
       turn_actions: [],
@@ -43,79 +46,105 @@ class ActionManager
         position: positions[(seat_no - button_seat_no) % positions.size],
         player_name: agent.seat.player.name,
         stack: agent.seat.player.stack,
-        state: "active",
+        state: "active", # or "fold"
         phase_amount: 0,
       }
     end
-    @current_base_no = button_seat_no
+    @button_seat_no = button_seat_no
+    @current_blind = 10 # big blind amount
+    @player_num = @agent_map.keys.size
+    @deck = Poker::Deck.new
+    @player_cards = Hash.new { |h, k| h[k] = [] }
+    @board_cards = []
+  end
 
-    @history = []
+  def deal_cards
+    @agent_map.each do |seat_no, agent|
+      @player_cards[seat_no] << @deck.draw
+    end
+    @agent_map.each do |seat_no, agent|
+      @player_cards[seat_no] << @deck.draw
+    end
+    @agent_map.each do |seat_no, agent|
+      agent.comm(type: 'deal', cards: @player_cards[seat_no].map(&:id))
+    end
+  end
+
+  def active_player_cards
+    @player_cards.select { |seat_no, cards| seat_no.in?(active_seat_nos) }
   end
 
   def pot_amount
     @game_data[:pot_amount]
   end
 
-  def result
-    puts "HISTORY:"
-    p @history
-    puts "last actions: #{ @history.slice(@current_history_index..-1)}"
+  def active_seat_nos
+    @game_data[:players].select { |player| player[:state] != 'fold' }.map { |player| player[:seat_no] }
   end
 
-  def hoge(phase)
-    @current_history_index ||= 0
-    @current_phase = phase
-
-    # TODO: UTGのプレイヤーから
-    agents = @agent_map.values.slice(@current_base_no..-1)
-    if @current_base_no > 0
-      agents += @agent_map.values.slice(0..(@current_base_no-1))
+  def next_agents(next_seat_no)
+    agents = @agent_map.values.slice(next_seat_no..-1)
+    if next_seat_no > 0
+      agents += @agent_map.values.slice(0..(next_seat_no-1))
     end
 
-    while true
-      unless each_action(agents)
-        break
-      end
-      agents = []
-      # ベット or レイズのアクションをした次のプレイヤーから
-      if @current_base_no + 1 < @agent_map.keys.size # 最後じゃない場合
-        next_seat_no = (@current_base_no + 1) % @agent_map.keys.size
-        agents += @agent_map.values.slice(next_seat_no..-1)
-      end
+    # アクティブなプレイヤーのみ
+    agents = agents.select { |a| a.seat.no.in?(active_seat_nos) }
+    agents
+  end
 
-      # ベット or レイズのアクションをした手前のプレイヤーまで
-      if @current_base_no > 0 # 先頭じゃない場合
-        prev_seat_no = (@current_base_no - 1) % @agent_map.keys.size
-        agents += @agent_map.values.slice(0..prev_seat_no)
-      end
+  def process_phase(phase)
+    @current_phase = phase
 
-      # フォールド済みのプレイヤーを除外
-      folded_seat_nos = @game_data[:players].select { |player| player[:state] == 'fold' }.map { |player| player[:seat_no] }
-      agents = agents.select { |a| !a.seat.no.in?(folded_seat_nos) }
+    if @current_phase == 'preflop'
+      small_blind
+      big_blind
+    elsif @current_phase == 'flop'
+      @board_cards = 3.times.map { @deck.draw }
+      puts "[Board] #{@board_cards.map(&:id).join(' ')}"
+    elsif @current_phase == 'turn'
+      @board_cards << @deck.draw
+      puts "[Board] #{@board_cards.map(&:id).join(' ')}"
+    elsif @current_phase == 'river'
+      @board_cards << @deck.draw
+      puts "[Board] #{@board_cards.map(&:id).join(' ')}"
+    end
+    @game_data[:board_cards] = @board_cards.map(&:id).join(' ')
+
+    # UTGのプレイヤーから
+    agents = next_agents((@button_seat_no + 3) % @player_num)
+
+    loop do
+      break unless each_action(agents)
+
+      # 最後にベット or レイズのアクションをした次のプレイヤーから
+      agents = next_agents((@last_aggressive_action_seat_no + 1) % @player_num)
+      agents.slice!(-1) # 最後の要素＝ベットプレイヤーを除外
     end 
   end
 
   # agent_map: bet or raiseしたプレイヤー以外　
   def each_action(agents)
-    puts "ENTER: each_action, current_history_index: #{@current_history_index}, current_base_no: #{@current_base_no}"
     puts "nos: #{agents.map(&:seat).map(&:no).join(',')}"
 
     agents.each do |agent|
       # プレイヤーにアクションを促し処理する
       action = one_action(agent)
 
-      # プレイヤー全員に最新のゲームデータを配信
-      @agent_map.each { |_, a| a.comm(type: 'refresh', game_data: @game_data) }
+      notify_game_data
 
-      @history << action
       puts "[Player] #{agent.seat.player.name}'s action: #{action[:action]}, amount: #{action[:amount]}"
       if action[:action] == 'bet' || action[:action] == 'raise'
-        @current_history_index = @history.size - 1
-        @current_base_no = agent.seat.no
+        @last_aggressive_action_seat_no = agent.seat.no
         return true
       end
     end
     false
+  end
+
+  # プレイヤー全員に最新のゲームデータを配信
+  def notify_game_data
+    @agent_map.each { |_, agent| agent.comm(type: 'notify', game_data: @game_data) }
   end
 
   def one_action(agent)
@@ -158,6 +187,10 @@ class ActionManager
       bet_amount = action[:amount] - phase_amount
     when 'fold'
       # 何もしない
+    when 'small_blind'
+      bet_amount = @current_blind / 2
+    when 'big_blind'
+      bet_amount = @current_blind
     end
 
     # ゲームデータのプレイヤー情報を更新
@@ -174,10 +207,28 @@ class ActionManager
         "action": action[:action],
         "amount": bet_amount
     }
-    puts "[GAME_DATA] #{JSON.pretty_generate(@game_data)}"
+    # puts "[GAME_DATA] #{JSON.pretty_generate(@game_data)}"
 
     # サーバ側のプレイヤーデータを更新
     agent.seat.player.stack -= bet_amount
+  end
+
+  private
+
+  def small_blind
+    seat_no = (@button_seat_no + 1) % @player_num
+    agent = @agent_map[seat_no]
+    process_action(agent, action: 'small_blind')
+    res = agent.comm(type: 'info', msg: "You paid small blind.")
+    notify_game_data
+  end
+
+  def big_blind
+    seat_no = (@button_seat_no + 2) % @player_num
+    agent = @agent_map[seat_no]
+    process_action(agent, action: 'big_blind')
+    res = agent.comm(type: 'info', msg: "You paid big blind.")
+    notify_game_data
   end
 end
 
@@ -220,10 +271,10 @@ class ServerAgent
   end
 
   def comm(hash)
-    puts "From server to client: #{hash.to_s}"
+    # puts "From server to client: #{hash.to_s}"
     @sock.puts(JSON.generate(hash))
     res = gets
-    puts "From client: #{res}"
+    # puts "From client: #{res}"
     res
   end
 end

@@ -106,13 +106,32 @@ module Poker
         best_hand = nil
         (cards + board_cards).combination(5).each do |cards_5|
           hand = new(cards_5)
-          if best_hand.nil? ||  self.stronger?(hand, best_hand)
+          if best_hand.nil? || self.stronger?(hand, best_hand)
             best_hand = hand
           end
         end
         result[no] = { hand: best_hand }
       end
       result
+    end
+
+    def self.select_best_hands(evaluated_result)
+      best_hands_by_seat_no = {}
+      evaluated_result.each do |no, hand_result|
+        if best_hands_by_seat_no.empty?
+          best_hands_by_seat_no[no] = hand_result
+          next
+        end
+
+        current_best_hand = best_hands_by_seat_no.values.first
+        if Poker::Hand.equal?(hand_result[:hand], current_best_hand[:hand])
+          best_hands_by_seat_no[no] = hand_result
+        elsif Poker::Hand.stronger?(hand_result[:hand], current_best_hand[:hand])
+          best_hands_by_seat_no = {}
+          best_hands_by_seat_no[no] = hand_result
+        end
+      end
+      best_hands_by_seat_no
     end
 
     def self.equal?(target, compared)
@@ -153,7 +172,7 @@ module Poker
 
       hands = nil
       kickers = []
-      msg = @cards.map(&:id).join(" ") + ": "
+      msg = @cards.sort_by(&:strength).reverse.map(&:id).join(" ") + ": "
 
       if cards_sf = detect_hands_straight_flush
         hands = HANDS_STRAIGHT_FLUSH

@@ -1,58 +1,12 @@
-require 'socket'
-require 'json'
-require './poker'
-
-class PlayerAgent
-  attr_accessor :player_name, :player_stack
-
-  def initialize
-    @sock = Client.new('localhost', 12345)
-    res = @sock.gets
-    @player_name = "Player#{res[:no]}"
-    @sock.puts(name: player_name)
-    res = @sock.gets
-    @player_stack = res[:stack]
-  end
-
-  def gets; @sock.gets; end
-  def puts(hash); @sock.puts(hash); end
-  def close; @sock.close; end
-
-  def ping
-    @sock.puts(cmd: 'ping')
-  end
-
-  #
-  # actions
-  #
-
-  def bet(amount)
-    @sock.puts(cmd: 'bet', action: 'bet', amount: amount)
-  end
-
-  def call
-    @sock.puts(cmd: 'call', action: 'call')
-  end
-
-  def check
-    @sock.puts(cmd: '', action: 'check')
-  end
-
-  def raise(amount)
-    @sock.puts(cmd: 'raise', action: 'raise', amount: amount)
-  end
-
-  def win(amount)
-  end
-end
+require './player_agent'
 
 agent = PlayerAgent.new
 
-while true
+loop do
   puts "waiting....."
   response = agent.gets
 
-  puts "From Server: #{response}"
+  # puts "From Server: #{response}"
 
   if response[:game_data]
     puts "----- Current Status -----"
@@ -73,14 +27,17 @@ while true
     agent.ping
   when 'action'
     while true
-      puts "prev action: #{response[:prev_action]}"
+      puts "Board cards: #{response[:game_data][:board_cards]}"
+      puts "Your cards: #{@cards}"
       puts 'Your action:'
       puts '1: check'
       puts '2: bet'
       puts '3: call'
       puts '4: raise'
       puts '5: fold'
+
       player_input = gets.chomp
+
       case player_input
       when '1' # check
         puts "check"
@@ -107,14 +64,18 @@ while true
       break
     end
   when 'deal'
-    puts "dealed cards: #{response[:cards]}"
+    @cards = response[:cards]
+    puts "dealed cards: #{@cards}"
+    agent.puts({})
+  when 'info'
+    puts "#{response[:msg]}"
     agent.puts({})
   when 'close'
     agent.puts({})
     agent.close
     break
   else
-    puts response
+    # puts response
     agent.puts({})
   end
 end
