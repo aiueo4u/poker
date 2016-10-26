@@ -121,6 +121,11 @@ class ActionManager
       agents = next_agents((@last_aggressive_action_seat_no + 1) % @player_num)
       agents.slice!(-1) # 最後の要素＝ベットプレイヤーを除外
     end 
+
+    # fold以外のプレイヤーのstateをactiveに戻す。
+    @game_data[:players].each { |player| player[:state] != 'fold' && player[:state] = 'active' }
+    # phase_amountをリセット
+    @game_data[:players].each { |player| player[:phase_amount] = 0 }
   end
 
   # agent_map: bet or raiseしたプレイヤー以外　
