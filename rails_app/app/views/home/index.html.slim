@@ -1,3 +1,12 @@
-h1 hoge
+h1 テストテストテスト
 
-= image_tag('cards/10c.gif', height: 100)
+.
+  - if current_player
+    = "Hello, #{current_player.uid}"
+  - else
+    = link_to 'Facebook Login', player_facebook_omniauth_authorize_path
+
+- Poker::Card::MASTERS.each_with_index do |card_id, i|
+  = image_tag("cards/#{card_id}.gif", height: 100)
+  - if (i + 1) % 13 == 0
+    br

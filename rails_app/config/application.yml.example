@@ -1,0 +1,3 @@
+development:
+  facebook_app_id: 'fakeappid'
+  facebook_app_secret: 'fakeappsecret'
