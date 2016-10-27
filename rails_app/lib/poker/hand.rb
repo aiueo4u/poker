@@ -74,7 +74,6 @@ module Poker
       straight_flush_cards
     end
 
-
     def detect_hands_one_pair
       self.class.detect_hands_one_pair(@cards)
     end

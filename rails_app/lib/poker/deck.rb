@@ -7,7 +7,11 @@ module Poker
     end
 
     def draw
-      @cards.shift
+      drawn_card = @cards.shift
+      if drawn_card.nil?
+        raise 'deck is empty. cannot draw any more'
+      end
+      drawn_card
     end
   end
 end

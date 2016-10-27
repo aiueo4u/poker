@@ -11,10 +11,14 @@ module Poker
       Ah 2h 3h 4h 5h 6h 7h 8h 9h Th Jh Qh Kh
       Ac 2c 3c 4c 5c 6c 7c 8c 9c Tc Jc Qc Kc
       Ad 2d 3d 4d 5d 6d 7d 8d 9d Td Jd Qd Kd
-    )
+    ).freeze
 
     # TODO: validation
     def initialize(id)
+      unless id.in?(MASTERS)
+        raise "invalid id: #{id}"
+      end
+
       @id = id
       @rank = id[0]
       @suit = id[1]
