@@ -1,6 +1,6 @@
 class AddDeviseToPlayers < ActiveRecord::Migration[5.0]
   def self.up
-    create_table :players do |t|
+    create_table :players, options: "ROW_FORMAT=DYNAMIC"  do |t|
       ## Omniauthable
       t.string :provider, null: false
       t.string :uid, null: false

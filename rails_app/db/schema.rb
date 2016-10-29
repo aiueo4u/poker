@@ -12,7 +12,7 @@
 
 ActiveRecord::Schema.define(version: 20161027143438) do
 
-  create_table "players", force: :cascade do |t|
+  create_table "players", force: :cascade, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC" do |t|
     t.string   "provider",                        null: false
     t.string   "uid",                             null: false
     t.string   "access_token",                    null: false
@@ -23,7 +23,7 @@ ActiveRecord::Schema.define(version: 20161027143438) do
     t.datetime "last_sign_in_at"
     t.string   "current_sign_in_ip"
     t.string   "last_sign_in_ip"
-    t.index ["provider", "uid"], name: "index_players_on_provider_and_uid", unique: true
+    t.index ["provider", "uid"], name: "index_players_on_provider_and_uid", unique: true, using: :btree
   end
 
 end
